@@ -1,10 +1,8 @@
-import types
 import warnings
-from typing import Dict, Optional
+from typing import Optional
 
 import torch
 import torch.utils.checkpoint
-from transformers import AutoModelForCausalLM
 from transformers.cache_utils import Cache
 
 
@@ -144,26 +142,3 @@ def deepseek_v3_moe(self, hidden_states):
         final_hidden_states = final_hidden_states + self.shared_experts(hidden_states)
 
     return final_hidden_states.to(hidden_states.dtype)
-
-
-_from_config_original = AutoModelForCausalLM.from_config
-
-CUSTOM_MODULE_PATCHES: Dict[str, callable] = {
-    "DeepseekV3MoE": deepseek_v3_moe,
-    "DeepseekV2MoE": deepseek_v3_moe,
-    "DeepseekV3Attention": deepseek_v3_attention,
-    "DeepseekV2Attention": deepseek_v3_attention,
-}
-
-
-def get_model_from_config_patched(model_config, trust_remote_code):
-    model = _from_config_original(model_config, trust_remote_code=trust_remote_code)
-    # Patch modules
-    for _, module in model.named_modules():
-        if type(module).__name__ in CUSTOM_MODULE_PATCHES.keys():
-            module.forward = types.MethodType(CUSTOM_MODULE_PATCHES[type(module).__name__], module)
-
-    return model
-
-
-AutoModelForCausalLM.from_config = get_model_from_config_patched
