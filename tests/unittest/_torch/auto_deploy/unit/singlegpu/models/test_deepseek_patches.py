@@ -114,4 +114,4 @@ def test_module_patches(model_name, module_name, patch, inputs):
     # Generate test output
     test, *_ = module(*inputs)
 
-    torch.allclose(ref, test, atol=0, rtol=0)
+    assert torch.allclose(ref, test, atol=0, rtol=0)
