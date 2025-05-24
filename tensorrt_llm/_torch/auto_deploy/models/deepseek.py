@@ -4,8 +4,12 @@ from typing import Dict, Optional
 
 import torch
 import torch.utils.checkpoint
+from torch._prims_common import DeviceLikeType
 from transformers import AutoModelForCausalLM
 from transformers.cache_utils import Cache
+
+from . import hf
+from .factory import ModelFactoryRegistry
 
 
 def deepseek_v3_attention(
@@ -156,14 +160,28 @@ CUSTOM_MODULE_PATCHES: Dict[str, callable] = {
 }
 
 
-def get_model_from_config_patched(model_config, trust_remote_code):
-    model = _from_config_original(model_config, trust_remote_code=trust_remote_code)
-    # Patch modules
-    for _, module in model.named_modules():
-        if type(module).__name__ in CUSTOM_MODULE_PATCHES.keys():
-            module.forward = types.MethodType(CUSTOM_MODULE_PATCHES[type(module).__name__], module)
+def patch_deepseek_modules(model: torch.nn.Module) -> None:
+    """Patch DeepSeek modules in-place."""
 
+    for _, module in model.named_modules():
+        patch = CUSTOM_MODULE_PATCHES.get(type(module).__name__)
+        if patch is not None:
+            module.forward = types.MethodType(patch, module)
+
+
+def get_model_from_config_patched(model_config, trust_remote_code):
+    """Return a model with DeepSeek modules patched."""
+
+    model = _from_config_original(model_config, trust_remote_code=trust_remote_code)
+    patch_deepseek_modules(model)
     return model
 
 
-AutoModelForCausalLM.from_config = get_model_from_config_patched
+@ModelFactoryRegistry.register("DeepSeekForCausalLM")
+class DeepSeekForCausalLMFactory(hf.AutoModelForCausalLMFactory):
+    """AutoModelForCausalLMFactory with DeepSeek-specific patches."""
+
+    def build_model(self, device: DeviceLikeType) -> torch.nn.Module:  # type: ignore[override]
+        model = super().build_model(device)
+        patch_deepseek_modules(model)
+        return model

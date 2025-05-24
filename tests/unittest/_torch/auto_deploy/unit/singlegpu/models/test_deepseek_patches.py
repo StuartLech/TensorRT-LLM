@@ -1,6 +1,7 @@
 """Testing module patches that enable export of deepseek model."""
 
 import types
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -9,6 +10,8 @@ from transformers import AutoConfig, AutoModelForCausalLM
 from utils.llm_data import llm_models_root
 
 from tensorrt_llm._torch.auto_deploy.models.deepseek import (
+    CUSTOM_MODULE_PATCHES,
+    DeepSeekForCausalLMFactory,
     deepseek_v3_attention,
     deepseek_v3_moe_exact,
 )
@@ -115,3 +118,17 @@ def test_module_patches(model_name, module_name, patch, inputs):
     test, *_ = module(*inputs)
 
     torch.allclose(ref, test, atol=0, rtol=0)
+
+
+def test_factory_applies_patches(monkeypatch):
+    with (
+        patch.object(DeepSeekForCausalLMFactory, "prefetch_checkpoint"),
+        patch.object(DeepSeekForCausalLMFactory, "_load_quantization_config"),
+    ):
+        factory = DeepSeekForCausalLMFactory(model="dummy", skip_loading_weights=True)
+        factory._prefetched_path = "/tmp"
+        model = factory.build_model(device="meta")
+
+    for _, module in model.named_modules():
+        if type(module).__name__ in CUSTOM_MODULE_PATCHES:
+            assert module.forward.__func__ is CUSTOM_MODULE_PATCHES[type(module).__name__]
